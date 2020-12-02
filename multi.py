@@ -1,7 +1,10 @@
+import math
+
 import cv2
 import numpy as np
 import scipy as sp
 import scipy.ndimage
+from PIL import Image;
 from skimage.morphology import disk
 
 def local_mean(arr,r):
@@ -63,10 +66,10 @@ def _gf_color(I, p, r, eps, s=None):
         I = sp.ndimage.zoom(fullI, [1/s, 1/s, 1], order=1)
         p = sp.ndimage.zoom(fullP, [1/s, 1/s], order=1)
         r = round(r / s)
-
+    # print(p)
     h, w = p.shape[:2]
     N = box(np.ones((h, w)), r)
-    print(N)
+    # print(N)
 
 
     mI_r = box(I[:,:,0], r) / N
@@ -108,7 +111,7 @@ def _gf_color(I, p, r, eps, s=None):
             ])
             covIp = np.array([covIp_r[i,j], covIp_g[i,j], covIp_b[i,j]])
             a[i,j,:] = np.linalg.solve(sig + eps * np.eye(3), covIp)
-    print(a[:,:,1])
+    # print(a[:,:,1])
     b = mP - a[:,:,0] * mI_r - a[:,:,1] * mI_g - a[:,:,2] * mI_b
 
     meanA = box(a, r) / N[...,np.newaxis]
@@ -131,13 +134,9 @@ def _gf_gray(I, p, r, eps, s=None):
         eps - regularization (roughly, allowable variance of non-edge noise)
         s - subsampling factor for fast guided filter
     """
-    if s is not None:
-        Isub = sp.ndimage.zoom(I, 1/s, order=1)
-        Psub = sp.ndimage.zoom(p, 1/s, order=1)
-        r = round(r / s)
-    else:
-        Isub = I
-        Psub = p
+
+    Isub = I
+    Psub = p
 
 
     (rows, cols) = Isub.shape
@@ -161,22 +160,48 @@ def _gf_gray(I, p, r, eps, s=None):
     meanA = local_mean(a,r);
     meanB = local_mean(b,r);
 
-    if s is not None:
-        meanA = sp.ndimage.zoom(meanA, s, order=1)
-        meanB = sp.ndimage.zoom(meanB, s, order=1)
-
     q = meanA * I + meanB
     return q
-def edge_aware(i,j):
-    return 0;
+def mean_of_all_guidance_at_pixel_k(i,j,local_var_I,local_var_I1):
+    return (local_var_I[i,j]+local_var_I1[i,j])/2
+def edge_aware_constraint(i,j,local_var_I,local_var_I1,covI1p,covIp):
+    global edge_aware_mu
+    edge_aware_mu = np.array([])
+    t = local_var_I[i,j]/np.mean(local_var_I)
+    edge1 = (2/(1+math.exp(-t)) - 1)
+    if(covIp[i,j] > 0 ) :
+        edge_aware_mu = np.append(edge_aware_mu,edge1*1)
+    else :
+        edge_aware_mu = np.append(edge_aware_mu,edge1*(-1))
+
+    t = local_var_I1[i,j]/np.mean(local_var_I1)
+    edge1 = (2/(1+math.exp(-t)) - 1)
+    if (covI1p[i,j] > 0):
+        edge_aware_mu = np.append(edge_aware_mu, edge1 * 1)
+    else:
+        edge_aware_mu = np.append(edge_aware_mu, edge1 * (-1))
+
+    return edge_aware_mu;
+def edge_aware(i,j,eps,local_var_I,local_var_I1):
+    e = (0.001*256)**2
+    wk1 = (eps * np.mean(local_var_I) + eps * mean_of_all_guidance_at_pixel_k(i,j,local_var_I,local_var_I1)) / (local_var_I[i,j]+e)
+    wk2 = (eps * np.mean(local_var_I1) + eps * mean_of_all_guidance_at_pixel_k(i,j,local_var_I,local_var_I1)) / (local_var_I1[i,j]+e)
+    Wk = np.array([wk1,wk2]);
+    return Wk;
+
 
 def _gf_gray_multi(I,I1,p,r,eps):
     (rows, cols) = I.shape
+    N = box(np.ones([rows, cols]), r)
+
     meanI = local_mean(I,r)
     meanI1 = local_mean(I1,r)
     meanII = local_mean(I * I,r)
     meanI1I1 = local_mean(I1*I1,r)
     meanII1 = local_mean(I*I1,r)
+    meanIp = local_mean(I*p,r)
+    meanI1p = local_mean(I1*p,r)
+    meanp = local_mean(p,r)
     # phuong sai kenh 1
     local_varianceI = meanII - meanI*meanI
     # phuong sai kenh 2
@@ -186,18 +211,35 @@ def _gf_gray_multi(I,I1,p,r,eps):
     covII1 = meanII1 - meanI*meanI1
     covI1I = meanII1 - meanI*meanI1
     covI1I1 = meanI1I1 - meanI1*meanI1
+    # hiep phuong sai kenh va inputimage
+    covI1p = meanI1p - meanI1 * meanp
+    covIp = meanIp - meanI * meanp
+    #tao 2 mang chua akj ung voi 2 kenh
+    Akk = np.zeros((rows,cols,2))
+    for i in range(rows):
+        for j in range(cols):
+            W = np.diag(edge_aware(i,j,eps,local_varianceI,local_varianceI1))
+            Cj1j2 = np.array([ [covII[i,j],covI1I[i,j]] , [covII1[i,j],covI1I1[i,j]] ]);
+            edge_aware_const = edge_aware(i,j,eps,local_varianceI,local_varianceI1)*edge_aware_constraint(i,j,local_varianceI,local_varianceI1,covI1p,covIp)
+            Cj0 = np.array([covIp[i,j],covI1p[i,j]])
 
+            Ak =np.dot(np.linalg.inv(Cj1j2 + W),(Cj0 + edge_aware_const).T)
+            Akk[i,j,0] = Ak[0]
+            Akk[i,j,1] = Ak[1]
+    print(Akk[:, :, 0]);
+    return 0;
 
-    for i in rows:
-        for j in cols:
-            W = np.diag(edge_aware(i,j))
+    bk = meanp - Akk[:,:,0]* meanI - Akk[:,:,1]* meanI1;
 
-    print(meanI)
-def _gf_colorgray(I, I1, p, r, eps, s=None):
+    q = (Akk[:,:,0]/N * I) + (Akk[:,:,1]/N * I1) + bk/N
+    return q
+
+    # print(meanI)
+def _gf_colorgray(I, p, r, eps, s=None):
     """ automatically choose color or gray guided filter based on I's shape """
     if I.ndim == 2 or I.shape[2] == 1:
         print('hello')
-        return _gf_gray_multi(I, I1, p, r, eps, s)
+        # return _gf_gray_multi(I, I1, p, r, eps, s)
     elif I.ndim == 3 and I.shape[2] == 3:
         return _gf_color(I, p, r, eps, s)
     else:
@@ -219,50 +261,29 @@ def guided_filter(I, p, r, eps, s=None):
     # print(p3[:,:,0])
     for ch in range(p3.shape[2]):
         # print(ch)
+        print(p3[:,:,ch])
         out[:,:,ch] = _gf_colorgray(I, p3[:,:,ch], r, eps, s)
     return np.squeeze(out) if p.ndim == 2 else out  #//squeeze de xoa 1 (h,w,1) => (h,w)
 
 
 def test_gf():
     import imageio
-    cat = imageio.imread('cat.bmp').astype(np.float32) / 255
+    # cat = imageio.imread('cat.bmp').astype(np.float32) / 255
     img1 = cv2.imread('img1_1.png').astype(np.float32) / 255
     img2 = cv2.imread('img2_2.png').astype(np.float32) / 255
     img1 = cv2.cvtColor(img1,cv2.COLOR_BGR2GRAY)
     img2 = cv2.cvtColor(img2,cv2.COLOR_BGR2GRAY)
-    print(cat.shape)
-    print(img1.shape);
+    # print(cat.shape)
+    print(img1);
     r = 8
     eps = 0.05
-    _gf_gray_multi(img1,img2,img1,r,eps)
+    result = _gf_gray_multi(img1,img2,img1,r,eps)
+    print(result)
+    # image_result = Image.fromarray((result * 255).astype(np.uint8))
+    # image_result.save('hello.png')
+    # print(result)
 
-    # cat_smoothed = guided_filter(cat, cat, r, eps)
-    # cat_smoothed_s4 = guided_filter(cat, cat, r, eps, s=4)
-    #
-    # imageio.imwrite('cat_showsmoothed4.png', cat_smoothed)
-    # imageio.imwrite('cat_smoothed_s4.png', cat_smoothed_s4)
-
-    # tulips_smoothed4s = np.zeros_like(tulips)
-    # for i in range(3):
-    #     tulips_smoothed4s[:,:,i] = guided_filter(tulips, tulips[:,:,i], r, eps, s=4)
-    # imageio.imwrite('tulips_smoothed4s.png', tulips_smoothed4s)
-
-    # tulips_smoothed = np.zeros_like(tulips)
-    # for i in range(3):
-    #     tulips_smoothed[:,:,i] = guided_filter(tulips, tulips[:,:,i], r, eps)
-    # print(tulips_smoothed)
-    # cv2.imshow('image.png', tulips_smoothed)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
-    # imageio.imwrite('tulips_smoothed1.png', tulips_smoothed)
 test_gf();
 
-# a = np.array([[5,3,7,2],[11,3,22,8],[9,2,8,22],[6,5,4,4],[7,3,1,4]],dtype=np.float64)
-# print(a.ndim)
-# N = box(np.ones((5, 4)), 1)
-# print(a_mean)
-# print(a.shape)
-# print(N)
-# print(box(a,1)/N)
-# print(local_mean(a,1))
+
 

@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import scipy as sp
 import scipy.ndimage
+from PIL import Image
 from skimage.morphology import disk
 
 def local_mean(arr,r):
@@ -75,7 +76,7 @@ def _gf_color(I, p, r, eps, s=None):
 
     h, w = p.shape[:2]
     N = box(np.ones((h, w)), r)
-    print(N)
+    # print(N)
 
 
     mI_r = box(I[:,:,0], r) / N
@@ -121,13 +122,17 @@ def _gf_color(I, p, r, eps, s=None):
     b = mP - a[:,:,0] * mI_r - a[:,:,1] * mI_g - a[:,:,2] * mI_b
 
     meanA = box(a, r) / N[...,np.newaxis]
+    print('hello',meanA[:,:,0])
     meanB = box(b, r) / N
+    print('b...',meanB)
 
     # if s is not None:
     #     meanA = sp.ndimage.zoom(meanA, [s, s, 1], order=1)
     #     meanB = sp.ndimage.zoom(meanB, [s, s], order=1)
 
     q = np.sum(meanA * fullI, axis=2) + meanB
+    print('npsss',np.sum(meanA * fullI, axis=2))
+    print ('q..',q)
 
     return q
 
@@ -212,8 +217,6 @@ def test_gf():
     import imageio
     import cv2
     # cat = imageio.imread('cat.bmp').astype(np.float32) / 255
-    tulips = cv2.imread('tulips.bmp') / 255
-
     # print(tulips[:,:,0])
 
     r = 8
@@ -230,14 +233,16 @@ def test_gf():
     #     tulips_smoothed4s[:,:,i] = guided_filter(tulips, tulips[:,:,i], r, eps, s=4)
     # imageio.imwrite('tulips_smoothed4s.png', tulips_smoothed4s)
 
+    tulips = cv2.imread('tulips.bmp').astype(np.float32) / 255
     tulips_smoothed = np.zeros_like(tulips)
     for i in range(3):
-        tulips_smoothed[:,:,i] = guided_filter(tulips, tulips[:,:,i], r, eps)
-    # print(tulips_smoothed)
-    # cv2.imshow('image.png', tulips_smoothed)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
-    imageio.imwrite('tulips_smoothed1.png', tulips_smoothed)
+        tulips_smoothed[:, :, i] = guided_filter(tulips, tulips[:, :, i], r, eps)
+    print(tulips_smoothed)
+    print((tulips_smoothed * 255).astype(np.uint8))
+    tulips_smoothed = cv2.cvtColor(tulips_smoothed, cv2.COLOR_BGR2RGB)
+    pil_img = Image.fromarray((tulips_smoothed * 255).astype(np.uint8))
+    pil_img.save('tulips_smoothed2.png')
+    # imageio.imwrite('tulips_smoothed1.png', tulips_smoothed)
 test_gf();
 
 # a = np.array([[5,3,7,2],[11,3,22,8],[9,2,8,22],[6,5,4,4],[7,3,1,4]],dtype=np.float64)
