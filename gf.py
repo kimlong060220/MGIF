@@ -6,10 +6,9 @@ from skimage.morphology import disk
 
 def local_mean(arr,r):
     (rows,cols) = arr.shape[:2];
-    # print(rows,cols)
     out = np.zeros((rows,cols))
     mask = np.zeros((2*r+1,2*r+1))
-    # print(mask)
+
     # truyen cols vaf rows 0 vao
     zeros_1 = np.zeros((1,arr.shape[1]))
     for i in range(r):
@@ -154,22 +153,19 @@ def _gf_gray(I, p, r, eps, s=None):
 
     N = box(np.ones([rows, cols]), r)
 
-
-    # meanI = box(Isub, r) / N
-    meanI = local_mean(Isub,r);
-    meanP = local_mean(Psub,r);
-    corrI = local_mean(Isub * Isub,r);
-    corrIp = local_mean(Isub * Psub,r);
+    meanI = box(Isub, r) / N
+    meanP = box(Psub, r) / N
+    corrI = box(Isub * Isub, r) / N
+    corrIp = box(Isub * Psub, r) / N
     varI = corrI - meanI * meanI
     covIp = corrIp - meanI * meanP
 
 
     a = covIp / (varI + eps)
     b = meanP - a * meanI
-    # print("a.....",a)
 
-    meanA = local_mean(a,r);
-    meanB = local_mean(b,r);
+    meanA = box(a, r) / N
+    meanB = box(b, r) / N
 
     if s is not None:
         meanA = sp.ndimage.zoom(meanA, s, order=1)
@@ -177,6 +173,7 @@ def _gf_gray(I, p, r, eps, s=None):
 
     q = meanA * I + meanB
     return q
+
 
 
 def _gf_colorgray(I, p, r, eps, s=None):
@@ -209,18 +206,27 @@ def guided_filter(I, p, r, eps, s=None):
 def test_gf():
     import imageio
     import cv2
-    cat = imageio.imread('cat.bmp').astype(np.float32) / 255
+    from PIL import Image;
+
+    # cat = imageio.imread('cat.bmp').astype(np.float32) / 255
     # tulips = cv2.imread('tulips.bmp') / 255
 
     # print(tulips.shape)
+    img1 = cv2.imread('img1_1.png').astype(np.float32) / 255
+    img2 = cv2.imread('img2_2.png').astype(np.float32) / 255
+    img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+    img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
 
     r = 8
     eps = 0.05
+    result = guided_filter(img1,img2,r,eps)
+    image_result = Image.fromarray((result * 255).astype(np.uint8))
+    image_result.save('AnhResultGIF1.png')
 
-    cat_smoothed = guided_filter(cat, cat, r, eps)
+
+    # cat_smoothed = guided_filter(cat, cat, r, eps)
     # cat_smoothed_s4 = guided_filter(cat, cat, r, eps, s=4)
-    #
-    imageio.imwrite('cat_showsmoothed4.png', cat_smoothed)
+    # imageio.imwrite('cat_showsmoothed4.png', cat_smoothed)
 
     # imageio.imwrite('cat_smoothed_s4.png', cat_smoothed_s4)
 
@@ -238,13 +244,4 @@ def test_gf():
     # cv2.destroyAllWindows()
     # imageio.imwrite('tulips_smoothed.png', tulips_smoothed)
 test_gf();
-
-a = np.array([[5,3,7,2],[11,3,22,8],[9,2,8,22],[6,5,4,4],[7,3,1,4]],dtype=np.float64)
-print(a.ndim)
-# N = box(np.ones((5, 4)), 1)
-# print(a_mean)
-# print(a.shape)
-# print(N)
-# print(box(a,1)/N)
-# print(local_mean(a,1))
 

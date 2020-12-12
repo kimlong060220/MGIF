@@ -118,8 +118,9 @@ def _gf_color(I, p, r, eps, s=None):
             ])
             covIp = np.array([covIp_r[i,j], covIp_g[i,j], covIp_b[i,j]])
             a[i,j,:] = np.linalg.solve(sig + eps * np.eye(3), covIp)
-    print(a[:,:,1])
+    print('a...',a[:,:,1])
     b = mP - a[:,:,0] * mI_r - a[:,:,1] * mI_g - a[:,:,2] * mI_b
+    print('mP...',mP)
 
     meanA = box(a, r) / N[...,np.newaxis]
     print('hello',meanA[:,:,0])
